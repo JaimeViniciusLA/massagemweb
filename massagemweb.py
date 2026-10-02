@@ -368,8 +368,10 @@ with tab1:
             col_btn4.download_button("📄 **Exportar PDF**", data=pdf_data, file_name=f"Escala_{mes_selecionado}.pdf", mime="application/pdf", use_container_width=True)
 
         st.markdown("<br>", unsafe_allow_html=True)
-
         modo_visao = st.radio("Modo de Visualização:", ["🎴 Visualização em Cards (Interativo)", "📊 Visualização em Tabela Completa"], horizontal=True)
+
+        if "slot_sub_manual" not in st.session_state:
+            st.session_state["slot_sub_manual"] = None
 
         if "Cards" in modo_visao:
             st.markdown("### 🎴 Slots de Atendimento por Data")
@@ -379,10 +381,6 @@ with tab1:
 
             grid_cols = st.columns(3)
             col_idx = 0
-
-            # Estado na sessão para controlar o modal/expander de substituição à mão por card
-            if "slot_sub_manual" not in st.session_state:
-                st.session_state["slot_sub_manual"] = None
 
             for h, colab in agenda.items():
                 partes = h.split(" | ")
@@ -395,7 +393,6 @@ with tab1:
                 st_atual = status_agendamentos.get(h, "Pendente")
                 tp_atual = tipo_agendamento.get(h, "Sorteado")
 
-                # Montagem das Badges
                 if colab == "--- VAGO ---":
                     badge_html = '<span class="badge-vago">VAGO</span>'
                 elif colab == "🔒 [BLOQUEADO]":
@@ -414,67 +411,72 @@ with tab1:
                     with st.container(border=True):
                         st.markdown(f"**📅 {dia_data_rotulo}**")
                         st.markdown(f"**⏰ Slot:** {hora_slot} &nbsp; {badge_html}", unsafe_allow_html=True)
-                        st.markdown(f"**Colaborador:** {colab}")
                         
-                        # BOTOES DE AÇÃO LADO A LADO NOS CARDS
-                        if colab == "--- VAGO ---":
-                            c_card1, c_card2 = st.columns(2)
-                            if c_card1.button("🎲 Sortear", key=f"btn_sort_{h}", use_container_width=True):
-                                urna = obter_elegiveis_equitativos(pessoas)
-                                if urna:
-                                    esc = random.choice(urna)
-                                    agenda[h] = f"[{esc.get('matricula', 'N/A')}] {esc['nome']}"
-                                    status_agendamentos[h] = "Pendente"
-                                    tipo_agendamento[h] = "Sorteado"
-                                    esc["participou_semana"] = True
-                                    esc["total_participacoes"] = esc.get("total_participacoes", 0) + 1
+                        # EXIBIÇÃO COM OS DOIS BOTÕES COMPACTOS DO LADO DO NOME
+                        c_nome_txt, c_btn_sub, c_btn_sort = st.columns([3.5, 0.9, 0.9])
+                        
+                        with c_nome_txt:
+                            st.markdown(f"**Colaborador:**\n{colab}")
+
+                        if colab != "--- VAGO ---":
+                            with c_btn_sub:
+                                if st.button("✍️", key=f"card_btn_sub_{h}", help="Substituir à Mão"):
+                                    st.session_state["slot_sub_manual"] = h if st.session_state["slot_sub_manual"] != h else None
+                                    st.rerun()
+                            
+                            with c_btn_sort:
+                                if st.button("🎲", key=f"card_btn_sort_{h}", help="Re-sortear Automático"):
+                                    for p in pessoas:
+                                        if f"[{p.get('matricula')}] {p['nome']}" == colab:
+                                            p["participou_semana"] = False
+                                            p["total_participacoes"] = max(0, p.get("total_participacoes", 1) - 1)
+
+                                    urna = obter_elegiveis_equitativos(pessoas)
+                                    if urna:
+                                        substitut_auto = random.choice(urna)
+                                        agenda[h] = f"[{substitut_auto.get('matricula', 'N/A')}] {substitut_auto['nome']}"
+                                        status_agendamentos[h] = "Pendente"
+                                        tipo_agendamento[h] = "Sorteado"
+                                        substitut_auto["participou_semana"] = True
+                                        substitut_auto["total_participacoes"] = substitut_auto.get("total_participacoes", 0) + 1
+                                        st.toast(f"🎲 Sorteado: {substitut_auto['nome']}")
+                                    else:
+                                        agenda[h] = "--- VAGO ---"
+                                        tipo_agendamento[h] = "N/A"
+                                        st.toast("Sem aptos na urna. Slot resetado.")
+
                                     dados["agenda"] = agenda
                                     dados["pessoas"] = pessoas
                                     dados["status_agendamentos"] = status_agendamentos
                                     dados["tipo_agendamento"] = tipo_agendamento
                                     salvar_dados(dados, mes_selecionado, ano_selecionado)
                                     st.rerun()
-
-                            if c_card2.button("✍️ Substituir à Mão", key=f"btn_sub_hand_vago_{h}", use_container_width=True):
-                                st.session_state["slot_sub_manual"] = h if st.session_state["slot_sub_manual"] != h else None
-                                st.rerun()
                         else:
-                            c_card1, c_card2, c_card3, c_card4 = st.columns([1.2, 1.2, 1, 0.8])
-                            
-                            # BOTÃO 1: SUBSTITUIR À MÃO
-                            if c_card1.button("✍️ Substituir", key=f"btn_sub_hand_{h}", use_container_width=True, help="Altera o funcionário manualmente"):
-                                st.session_state["slot_sub_manual"] = h if st.session_state["slot_sub_manual"] != h else None
-                                st.rerun()
+                            with c_btn_sort:
+                                if st.button("🎲", key=f"card_btn_sort_vago_{h}", help="Sortear Automático"):
+                                    urna = obter_elegiveis_equitativos(pessoas)
+                                    if urna:
+                                        esc = random.choice(urna)
+                                        agenda[h] = f"[{esc.get('matricula', 'N/A')}] {esc['nome']}"
+                                        status_agendamentos[h] = "Pendente"
+                                        tipo_agendamento[h] = "Sorteado"
+                                        esc["participou_semana"] = True
+                                        esc["total_participacoes"] = esc.get("total_participacoes", 0) + 1
+                                        dados["agenda"] = agenda
+                                        dados["pessoas"] = pessoas
+                                        dados["status_agendamentos"] = status_agendamentos
+                                        dados["tipo_agendamento"] = tipo_agendamento
+                                        salvar_dados(dados, mes_selecionado, ano_selecionado)
+                                        st.rerun()
+                            with c_btn_sub:
+                                if st.button("✍️", key=f"card_btn_sub_vago_{h}", help="Substituir à Mão"):
+                                    st.session_state["slot_sub_manual"] = h if st.session_state["slot_sub_manual"] != h else None
+                                    st.rerun()
 
-                            # BOTÃO 2: SORTEAR AUTOMÁTICO (AO LADO DO SUBSTITUIR)
-                            if c_card2.button("🎲 Sortear", key=f"btn_resort_auto_{h}", use_container_width=True, help="Sorteia automaticamente outro colaborador via urna"):
-                                for p in pessoas:
-                                    if f"[{p.get('matricula')}] {p['nome']}" == colab:
-                                        p["participou_semana"] = False
-                                        p["total_participacoes"] = max(0, p.get("total_participacoes", 1) - 1)
-
-                                urna = obter_elegiveis_equitativos(pessoas)
-                                if urna:
-                                    substituto = random.choice(urna)
-                                    agenda[h] = f"[{substituto.get('matricula', 'N/A')}] {substituto['nome']}"
-                                    status_agendamentos[h] = "Pendente"
-                                    tipo_agendamento[h] = "Sorteado"
-                                    substituto["participou_semana"] = True
-                                    substituto["total_participacoes"] = substituto.get("total_participacoes", 0) + 1
-                                    st.toast(f"Re-sorteado automaticamente: {substituto['nome']}!")
-                                else:
-                                    agenda[h] = "--- VAGO ---"
-                                    tipo_agendamento[h] = "N/A"
-                                    st.toast("Sem outros aptos na urna. Slot voltou a ser VAGO.")
-
-                                dados["agenda"] = agenda
-                                dados["pessoas"] = pessoas
-                                dados["status_agendamentos"] = status_agendamentos
-                                dados["tipo_agendamento"] = tipo_agendamento
-                                salvar_dados(dados, mes_selecionado, ano_selecionado)
-                                st.rerun()
-
-                            if c_card3.button("✅ Presença", key=f"btn_pres_{h}", use_container_width=True):
+                        # AÇÕES INFERIORES DO CARD
+                        c_bot1, c_bot2 = st.columns([2, 1])
+                        if colab != "--- VAGO ---":
+                            if c_bot1.button("✅ Presença", key=f"btn_pres_{h}", use_container_width=True):
                                 status_agendamentos[h] = "Realizado"
                                 dados["status_agendamentos"] = status_agendamentos
                                 salvar_dados(dados, mes_selecionado, ano_selecionado)
@@ -485,15 +487,15 @@ with tab1:
                                 tel = "".join(filter(str.isdigit, str(p_obj["telefone"])))
                                 if not tel.startswith("55"): tel = "55" + tel
                                 msg = urllib.parse.quote(f"Olá *{p_obj['nome']}*! Lembrete da sua Massagem: {dia_data_rotulo} às {hora_slot}")
-                                c_card4.markdown(f"[💬 Whats](https://web.whatsapp.com/send?phone={tel}&text={msg})")
+                                c_bot2.markdown(f"[💬 Whats](https://web.whatsapp.com/send?phone={tel}&text={msg})")
 
-                        # PAINEL EXPANSÍVEL DE SUBSTITUIÇÃO À MÃO
+                        # SUB-PAINEL DE SUBSTITUIÇÃO À MÃO
                         if st.session_state["slot_sub_manual"] == h:
                             with st.container(border=True):
-                                st.markdown("##### ✍️ **Alterar Funcionário à Mão**")
+                                st.markdown("##### ✍️ **Substituir Funcionário à Mão**")
                                 opcoes_m = ["--- VAGO ---", "🔒 [BLOQUEADO]"] + [f"[{p.get('matricula', 'N/A')}] {p['nome']}" for p in pessoas]
                                 idx_m = opcoes_m.index(colab) if colab in opcoes_m else 0
-                                novo_m_sel = st.selectbox("Escolha o Novo Colaborador", opcoes_m, index=idx_m, key=f"sb_m_{h}")
+                                novo_m_sel = st.selectbox("Escolha o Colaborador", opcoes_m, index=idx_m, key=f"sb_m_{h}")
                                 
                                 if st.button("💾 Confirmar Troca Manual", key=f"btn_conf_m_{h}", use_container_width=True, type="primary"):
                                     if colab not in ["--- VAGO ---", "🔒 [BLOQUEADO]"] and colab != novo_m_sel:
@@ -524,85 +526,99 @@ with tab1:
                 col_idx += 1
 
         else:
-            # VISUALIZAÇÃO EM TABELA COMPLETA COM PAINEL DE AÇÕES
-            df_agenda = pd.DataFrame([
-                {
-                    "Data / Dia": h.split(" | ")[0],
-                    "Horário Slot": h.split(" | ")[1] if " | " in h else h,
-                    "Colaborador Agendado": p,
-                    "Origem": tipo_agendamento.get(h, "Sorteado" if p not in ["--- VAGO ---", "🔒 [BLOQUEADO]"] else "N/A"),
-                    "Status": status_agendamentos.get(h, "Pendente")
-                }
-                for h, p in agenda.items()
-            ])
-            st.dataframe(df_agenda, use_container_width=True, hide_index=True, height=450)
+            # VISUALIZAÇÃO EM TABELA COM BOTÕES INTERATIVOS LADO A LADO POR LINHA
+            st.markdown("### 📊 Agenda Interativa em Tabela")
 
-            # BARRA DE AÇÕES DIRETAS PARA A VISÃO EM TABELA COMPLETA
-            st.markdown("---")
-            st.markdown("### ⚙️ **Ações Rápidas por Slot (Visualização em Tabela)**")
-            
-            t_col1, t_col2, t_col3, t_col4 = st.columns([2.5, 2.5, 1.5, 1.5])
-            
-            slot_tab_sel = t_col1.selectbox("Selecione o Horário Slot:", list(agenda.keys()), key="sb_tab_slot_act")
-            colab_tab_atual = agenda.get(slot_tab_sel, "--- VAGO ---")
-            
-            opcoes_tab = ["--- VAGO ---", "🔒 [BLOQUEADO]"] + [f"[{p.get('matricula', 'N/A')}] {p['nome']}" for p in pessoas]
-            idx_tab = opcoes_tab.index(colab_tab_atual) if colab_tab_atual in opcoes_tab else 0
-            
-            novo_colab_tab = t_col2.selectbox("Alterar Colaborador à Mão:", opcoes_tab, index=idx_tab, key="sb_tab_colab_act")
+            for h_idx, (h, colab) in enumerate(agenda.items()):
+                partes = h.split(" | ")
+                dia_data_rotulo = partes[0]
+                hora_slot = partes[1] if len(partes) > 1 else h
 
-            # Botão 1: Salvar Troca Manual
-            if t_col3.button("✍️ Substituir à Mão", use_container_width=True, key="btn_tab_sub_manual"):
-                if colab_tab_atual not in ["--- VAGO ---", "🔒 [BLOQUEADO]"] and colab_tab_atual != novo_colab_tab:
-                    for p in pessoas:
-                        if f"[{p.get('matricula')}] {p['nome']}" == colab_tab_atual:
-                            p["participou_semana"] = False
-                            p["total_participacoes"] = max(0, p.get("total_participacoes", 1) - 1)
+                st_atual = status_agendamentos.get(h, "Pendente")
+                tp_atual = tipo_agendamento.get(h, "Sorteado")
 
-                agenda[slot_tab_sel] = novo_colab_tab
-                tipo_agendamento[slot_tab_sel] = "Manual" if novo_colab_tab not in ["--- VAGO ---", "🔒 [BLOQUEADO]"] else "N/A"
+                with st.container(border=True):
+                    col_t1, col_t2, col_t3, col_t4, col_t5, col_t6 = st.columns([1.8, 1.2, 3.2, 0.5, 0.5, 1.2])
 
-                if novo_colab_tab not in ["--- VAGO ---", "🔒 [BLOQUEADO]"] and colab_tab_atual != novo_colab_tab:
-                    for p in pessoas:
-                        if f"[{p.get('matricula')}] {p['nome']}" == novo_colab_tab:
-                            p["participou_semana"] = True
-                            p["total_participacoes"] = p.get("total_participacoes", 0) + 1
+                    with col_t1:
+                        st.markdown(f"**{dia_data_rotulo}**")
+                    with col_t2:
+                        st.markdown(f"⏰ `{hora_slot}`")
+                    with col_t3:
+                        st.markdown(f"**{colab}**")
+                    
+                    # BOTÃO COMPACTO 1: SUBSTITUIR À MÃO NA LINHA
+                    with col_t4:
+                        if st.button("✍️", key=f"tab_row_sub_{h_idx}", help="Substituir Colaborador à Mão"):
+                            st.session_state["slot_sub_manual"] = h if st.session_state["slot_sub_manual"] != h else None
+                            st.rerun()
 
-                dados["agenda"] = agenda
-                dados["pessoas"] = pessoas
-                dados["tipo_agendamento"] = tipo_agendamento
-                salvar_dados(dados, mes_selecionado, ano_selecionado)
-                st.success("✅ Colaborador substituído à mão!")
-                st.rerun()
+                    # BOTÃO COMPACTO 2: SORTEAR AUTOMÁTICO NA LINHA
+                    with col_t5:
+                        if st.button("🎲", key=f"tab_row_sort_{h_idx}", help="Re-sortear Automático via Urna"):
+                            if colab not in ["--- VAGO ---", "🔒 [BLOQUEADO]"]:
+                                for p in pessoas:
+                                    if f"[{p.get('matricula')}] {p['nome']}" == colab:
+                                        p["participou_semana"] = False
+                                        p["total_participacoes"] = max(0, p.get("total_participacoes", 1) - 1)
 
-            # Botão 2: Sortear Automático
-            if t_col4.button("🎲 Re-sortear", use_container_width=True, key="btn_tab_resort_auto", type="primary"):
-                if colab_tab_atual not in ["--- VAGO ---", "🔒 [BLOQUEADO]"]:
-                    for p in pessoas:
-                        if f"[{p.get('matricula')}] {p['nome']}" == colab_tab_atual:
-                            p["participou_semana"] = False
-                            p["total_participacoes"] = max(0, p.get("total_participacoes", 1) - 1)
+                            urna = obter_elegiveis_equitativos(pessoas)
+                            if urna:
+                                substitut_auto = random.choice(urna)
+                                agenda[h] = f"[{substitut_auto.get('matricula', 'N/A')}] {substitut_auto['nome']}"
+                                status_agendamentos[h] = "Pendente"
+                                tipo_agendamento[h] = "Sorteado"
+                                substitut_auto["participou_semana"] = True
+                                substitut_auto["total_participacoes"] = substitut_auto.get("total_participacoes", 0) + 1
+                                st.toast(f"🎲 Sorteado: {substitut_auto['nome']}")
+                            else:
+                                agenda[h] = "--- VAGO ---"
+                                tipo_agendamento[h] = "N/A"
+                                st.toast("Sem aptos na urna. Slot resetado.")
 
-                urna = obter_elegiveis_equitativos(pessoas)
-                if urna:
-                    substitut_auto = random.choice(urna)
-                    agenda[slot_tab_sel] = f"[{substitut_auto.get('matricula', 'N/A')}] {substitut_auto['nome']}"
-                    status_agendamentos[slot_tab_sel] = "Pendente"
-                    tipo_agendamento[slot_tab_sel] = "Sorteado"
-                    substitut_auto["participou_semana"] = True
-                    substitut_auto["total_participacoes"] = substitut_auto.get("total_participacoes", 0) + 1
-                    st.success(f"🎲 Sorteado automaticamente: {substitut_auto['nome']}!")
-                else:
-                    agenda[slot_tab_sel] = "--- VAGO ---"
-                    tipo_agendamento[slot_tab_sel] = "N/A"
-                    st.warning("Sem colaboradores aptos na urna. Slot resetado para VAGO.")
+                            dados["agenda"] = agenda
+                            dados["pessoas"] = pessoas
+                            dados["status_agendamentos"] = status_agendamentos
+                            dados["tipo_agendamento"] = tipo_agendamento
+                            salvar_dados(dados, mes_selecionado, ano_selecionado)
+                            st.rerun()
 
-                dados["agenda"] = agenda
-                dados["pessoas"] = pessoas
-                dados["status_agendamentos"] = status_agendamentos
-                dados["tipo_agendamento"] = tipo_agendamento
-                salvar_dados(dados, mes_selecionado, ano_selecionado)
-                st.rerun()
+                    with col_t6:
+                        st.markdown(f"`{tp_atual}` | `{st_atual}`")
+
+                # PAINEL EXPANSÍVEL DE SUBSTITUIÇÃO À MÃO QUANDO CLICADO NA TABELA
+                if st.session_state["slot_sub_manual"] == h:
+                    with st.container(border=True):
+                        st.markdown(f"##### ✍️️ Substituir à Mão para o Horário: `{h}`")
+                        opcoes_m = ["--- VAGO ---", "🔒 [BLOQUEADO]"] + [f"[{p.get('matricula', 'N/A')}] {p['nome']}" for p in pessoas]
+                        idx_m = opcoes_m.index(colab) if colab in opcoes_m else 0
+                        novo_m_sel = st.selectbox("Selecione o Colaborador", opcoes_m, index=idx_m, key=f"sb_tab_m_{h_idx}")
+                        
+                        if st.button("💾 Confirmar Troca Manual", key=f"btn_tab_conf_m_{h_idx}", use_container_width=True, type="primary"):
+                            if colab not in ["--- VAGO ---", "🔒 [BLOQUEADO]"] and colab != novo_m_sel:
+                                for p in pessoas:
+                                    if f"[{p.get('matricula')}] {p['nome']}" == colab:
+                                        p["participou_semana"] = False
+                                        p["total_participacoes"] = max(0, p.get("total_participacoes", 1) - 1)
+
+                            agenda[h] = novo_m_sel
+                            status_agendamentos[h] = "Pendente"
+                            tipo_agendamento[h] = "Manual" if novo_m_sel not in ["--- VAGO ---", "🔒 [BLOQUEADO]"] else "N/A"
+
+                            if novo_m_sel not in ["--- VAGO ---", "🔒 [BLOQUEADO]"] and colab != novo_m_sel:
+                                for p in pessoas:
+                                    if f"[{p.get('matricula')}] {p['nome']}" == novo_m_sel:
+                                        p["participou_semana"] = True
+                                        p["total_participacoes"] = p.get("total_participacoes", 0) + 1
+
+                            dados["agenda"] = agenda
+                            dados["pessoas"] = pessoas
+                            dados["status_agendamentos"] = status_agendamentos
+                            dados["tipo_agendamento"] = tipo_agendamento
+                            salvar_dados(dados, mes_selecionado, ano_selecionado)
+                            st.session_state["slot_sub_manual"] = None
+                            st.success("✅ Substituição manual realizada com sucesso!")
+                            st.rerun()
 
     else:
         st.info("Nenhum horário gerado para a grade deste mês.")
